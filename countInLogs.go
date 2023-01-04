@@ -171,13 +171,13 @@ func Process(filePath, searchRegex string, wg *sync.WaitGroup, wgFileLimit *sync
 		assert(err, "Reading line #", lineNum, " from file:", filePath)
 
 		wgCloseChan.Add(1)
-		go func(line string, output chan<- string) {
-			defer wgCloseChan.Done()
+		go func(line string, output2 chan<- string) {
 			r := regexp.MustCompile(searchRegex)
 			for _, match := range r.FindAllString(line, -1) {
-				printDebug("FOUND match=", match)
-				output <- TrimAll(match)
+				// printDebug("FOUND match=", match)
+				output2 <- TrimAll(match)
 			}
+			wgCloseChan.Done()
 		}(string(nextUntillNewline), output)
 	}
 	go func() {
