@@ -18,6 +18,8 @@ import (
 )
 
 var debugMode bool
+var mutex sync.Mutex
+var foundIds map[string]int
 
 func assert(e error, a ...interface{}) {
 	if e != nil {
@@ -73,7 +75,7 @@ func main() {
 
 	countFromFile := *idsFile != ""
 	searchIds := map[string]int{}
-	foundIds := map[string]int{"test": 0}
+	foundIds = map[string]int{"test": 0}
 	var resultsMap *map[string]int
 	if countFromFile {
 		loadIDsToSearch(*idsFile, &searchIds)
@@ -85,7 +87,7 @@ func main() {
 	files, err := ioutil.ReadDir(*logsFolder)
 	assert(err, "Reading files from directory: ", *logsFolder)
 	totalNumOfFiles := 0
-	var m sync.Mutex
+
 	var wg sync.WaitGroup
 	var wgFileLimit sync.WaitGroup
 
@@ -96,22 +98,11 @@ func main() {
 				f = files[i+j]
 
 				totalNumOfFiles++
-				chanIds := make(chan string)
 				fmt.Println("Number: ", i, " of ", len(files), " name:", f.Name())
 
 				wg.Add(1)
 				wgFileLimit.Add(1)
-				go Process(path.Join(*logsFolder, f.Name()), *searchRegex, &wg, &wgFileLimit, chanIds)
-
-				wg.Add(1)
-				go func(input <-chan string) {
-					defer wg.Done()
-					for strId := range input {
-						m.Lock()
-						foundIds[strId]++
-						m.Unlock()
-					}
-				}(chanIds)
+				go Process(path.Join(*logsFolder, f.Name()), *searchRegex, &wg, &wgFileLimit)
 			}
 			wgFileLimit.Wait()
 			i += *maxFiles - 1
@@ -151,7 +142,7 @@ func main() {
 
 }
 
-func Process(filePath, searchRegex string, wg *sync.WaitGroup, wgFileLimit *sync.WaitGroup, output chan<- string) {
+func Process(filePath, searchRegex string, wg *sync.WaitGroup, wgFileLimit *sync.WaitGroup) {
 	defer wg.Done()
 	file, err := os.Open(filePath)
 	assert(err, "Openning File: ", filePath)
@@ -161,27 +152,23 @@ func Process(filePath, searchRegex string, wg *sync.WaitGroup, wgFileLimit *sync
 	r := bufio.NewReader(file)
 	lineNum := 0
 
-	var wgCloseChan sync.WaitGroup
 	for {
 		lineNum++
-		nextUntillNewline, err := r.ReadBytes('\n')
+		nextUntillNewline, notEnoughBuf, err := r.ReadLine()
+		if notEnoughBuf {
+			printDebug("notEnoughBuf", notEnoughBuf)
+		}
 		if err == io.EOF {
 			break
 		}
 		assert(err, "Reading line #", lineNum, " from file:", filePath)
 
-		wgCloseChan.Add(1)
-		go func(line string, output2 chan<- string) {
-			r := regexp.MustCompile(searchRegex)
-			for _, match := range r.FindAllString(line, -1) {
-				// printDebug("FOUND match=", match)
-				output2 <- TrimAll(match)
-			}
-			wgCloseChan.Done()
-		}(string(nextUntillNewline), output)
+		r := regexp.MustCompile(searchRegex)
+		for _, match := range r.FindAllString(string(nextUntillNewline), -1) {
+			// printDebug("FOUND match=", match)
+			mutex.Lock()
+			foundIds[TrimAll(match)]++
+			mutex.Unlock()
+		}
 	}
-	go func() {
-		wgCloseChan.Wait()
-		close(output)
-	}()
 }
