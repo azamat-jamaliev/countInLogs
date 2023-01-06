@@ -27,6 +27,7 @@ env GOOS=linux GOARCH=amd64 go build -o ./build .
 ### Cross platform: Build for Windows
 ```sh
 env GOOS=windows GOARCH=386 go build -o ./build/countInLogs.exe .
+env GOOS=windows GOARCH=amd64 go build -o ./build/countInLogs64bit.exe .
 ```
 
 ## Execution
